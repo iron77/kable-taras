@@ -359,19 +359,21 @@
   // stuknięcie dwoma palcami – oddalenie, w kartę – odpięcie (telefon nie ma Esc). Przesuwanie i szczypanie nie
   // przypinają; bez podświetlania pod palcem i dymka. Mysz i pióro – jak dotąd (mousedown, click) ----------
   const DOTYK = {prog: 10, dwa: 300, dwaOdl: 40, dwaPalce: 400, zasieg: 20};   // px ekranu, ms
-  const palce = new Map();                   // pointerId -> {x, y, x0, y0 (px w scenie), k (obrót ekranu przy dotknięciu)},
-                                             // w kolejności dotknięcia
+  const palce = new Map();                   // pointerId -> {x, y, x0, y0 (px w scenie), k (obrót ekranu przy dotknięciu;
+                                             // NaN – pomijany do podniesienia)}, w kolejności dotknięcia
   let gest = null, stuk = null, ostatniDotyk = -1e9, klatkaWidoku = 0, rs = null;   // rs – położenie sceny
   function poDotyku() {                      // palce na ekranie albo przed chwilą: mysz udawana przez przeglądarkę
     return palce.size > 0 || performance.now() - ostatniDotyk < 800;
   }
+  const kat = () => screen.orientation ? screen.orientation.angle : window.orientation;   // obrót ekranu
+  const zywe = () => [...palce.values()].filter(p => p.k === kat());   // palce bez tych sprzed obrotu ekranu
   function kotwica() {                       // zmiana liczby palców albo widoku: dalszy ruch od bieżącego widoku – bez skoku
-    const [a, b = a] = palce.values();
-    gest.od = {v, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(b.x - a.x, b.y - a.y)};
-    gest.ost = v;
+    const [a, b = a] = zywe();
+    if (a) gest.od = {v, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(b.x - a.x, b.y - a.y)};
+    gest.ost = v; gest.k = kat();
   }
   function widokPalcami() {                  // punkt planszy spod środka dwóch pierwszych palców idzie za nim,
-    const [a, b = a] = palce.values(), o = gest.od, x = (a.x + b.x) / 2, y = (a.y + b.y) / 2;   // rozstaw – zoom
+    const [a, b = a] = zywe(), o = gest.od, x = (a.x + b.x) / 2, y = (a.y + b.y) / 2;   // rozstaw – zoom
     const k = o.d ? Math.hypot(b.x - a.x, b.y - a.y) / o.d : 1, s = o.d ? przytnij(o.v.s * k) : o.v.s;
     v = gest.ost = {s, tx: x - (o.x - o.v.tx) * s / o.v.s, ty: y - (o.y - o.v.ty) * s / o.v.s};
     if (s !== o.v.s * k) kotwica();          // granica przybliżenia: zsuwanie od razu oddala (bez martwej strefy)
@@ -381,14 +383,15 @@
     if (gest.drugi) { gest.drugi.akcja(); gest.drugi = null; }
   }
   function ruszyl() { gest.ruch = true; pojedyncze(); }   // przesunięcie, szczypanie, przerwanie – nie stuknięcie
-  const kat = () => screen.orientation ? screen.orientation.angle : window.orientation;   // obrót ekranu
   // palec przesunięty: plansza stoi do progu (palec dalej od początku albo rozstaw dwóch inny o DOTYK.prog), potem go
   // dogania – do progu to wciąż stuknięcie (też dwoma palcami: oddalenie, nie zoom)
   function ruchPalca(p, e) {
-    if (p.k !== kat()) { ruszyl(); return; }   // ekran obrócony od dotknięcia: to samo miejsce szkła – inne współrzędne
-    if (v !== gest.ost) kotwica();           // widok zmieniony czym innym (kółko, klawisz, mysz, obrót, „Całość”) – od niego
+    if (p.k !== kat()) { p.k = NaN; ruszyl(); return; }   // ekran obrócony od dotknięcia: to samo miejsce szkła – inne
+                                             // współrzędne; palec pomijany do podniesienia (też po obrocie z powrotem)
+    if (v !== gest.ost || gest.k !== kat()) kotwica();   // widok zmieniony czym innym (kółko, klawisz, mysz, obrót,
+                                             // „Całość”) albo ekran obrócony (inne palce żywe) – od niego
     p.x = e.clientX - rs.left; p.y = e.clientY - rs.top;
-    const [a, b = a] = palce.values();
+    const [a, b = a] = zywe();
     if (!gest.ruch && (Math.hypot(p.x - p.x0, p.y - p.y0) > DOTYK.prog ||
                        palce.size > 1 && Math.abs(Math.hypot(b.x - a.x, b.y - a.y) - gest.m[2]) > DOTYK.prog)) ruszyl();
     if (gest.ruch) widokPalcami();
