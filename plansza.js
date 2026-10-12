@@ -79,24 +79,45 @@
       clearTimeout(czasomierz); czasomierz = setTimeout(rysujPelny, 140);
     } else rysujPelny();
   }
-  function calosc() {                        // cała plansza z marginesem
-    const s = Math.min((W - 40) / PW, (H - 40) / PH);
-    v = {s, tx: (W - PW * s) / 2, ty: (H - PH * s) / 2};
-    odswiez(false);
+  const przytnij = s => Math.min(Math.max(s, 0.05), 80);   // granice przybliżenia (kółko, palce)
+  let vCalosc = null;                        // widok z calosc() – dopóki v to ten sam obiekt, nikt widoku nie ruszył
+  function calosc(plynnie) {                 // cała plansza z marginesem, obok wcięć ekranu (padding #scena – telefon)
+    const c = getComputedStyle(scena), l = parseFloat(c.paddingLeft) || 0, p = parseFloat(c.paddingRight) || 0,
+          g = parseFloat(c.paddingTop) || 0, d = parseFloat(c.paddingBottom) || 0;
+    const s = Math.min((W - 40 - l - p) / PW, (H - 40 - g - d) / PH);
+    vCalosc = {s, tx: l + (W - l - p - PW * s) / 2, ty: g + (H - g - d - PH * s) / 2};
+    if (plynnie) przejdz(vCalosc); else { v = vCalosc; odswiez(false); }
+  }
+  // płynne przejście do widoku cel (dotyk: dwa stuknięcia, „Całość”): zoom wokół punktu, który w obu widokach jest
+  // w tym samym miejscu ekranu (ta sama skala – sam przesuw), z wyhamowaniem; inna zmiana widoku (palec, kółko, mysz,
+  // klawisz) – koniec przejścia
+  let anim = 0;
+  function przejdz(cel, czas = 250) {
+    cancelAnimationFrame(anim);
+    const a = v, k = cel.s / a.s, t0 = performance.now();
+    let ost = a;
+    anim = requestAnimationFrame(function krok(t) {
+      if (v !== ost) { anim = 0; return; }
+      const u = Math.min(1, Math.max(0, (t - t0) / czas)), e = 1 - (1 - u) ** 3;
+      const s = a.s * k ** e, f = Math.abs(k - 1) < 1e-6 ? e : (1 - k ** e) / (1 - k);
+      v = ost = u < 1 ? {s, tx: a.tx + (cel.tx - a.tx) * f, ty: a.ty + (cel.ty - a.ty) * f} : cel;
+      odswiez(true);
+      anim = u < 1 ? requestAnimationFrame(krok) : 0;
+    });
   }
 
   // ---------- zoom kółkiem (wokół kursora), przesuwanie środkowym albo lewym przyciskiem ----------
   scena.addEventListener('wheel', e => {
     e.preventDefault();
     const k = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0016));
-    const s = Math.min(Math.max(v.s * k, 0.05), 80);
+    const s = przytnij(v.s * k);
     const r = scena.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
     v = {s, tx: mx - (mx - v.tx) * s / v.s, ty: my - (my - v.ty) * s / v.s};
     odswiez(true);
   }, {passive: false});
   let ruch = null, ostatniSrodkowy = 0;
   scena.addEventListener('mousedown', e => {
-    if (e.button !== 0 && e.button !== 1) return;
+    if ((e.button !== 0 && e.button !== 1) || poDotyku()) return;   // mysz udawana po dotyku palcem – pomijana
     e.preventDefault();                       // środkowy: bez autoprzewijania przeglądarki
     if (e.button === 1) {                     // dwuklik środkowym – całość (jak w CAD)
       const t = performance.now();
@@ -122,7 +143,15 @@
     if (e.key === 'f' || e.key === 'F' || e.key === 'Home') calosc();
     if (e.key === 'Escape') odepnij();
   });
-  window.addEventListener('resize', () => { rozmiar(); odswiez(false); });
+  window.addEventListener('resize', () => {  // telefon, tablet (obrót): cała plansza zostaje cała, a inny widok – z tym
+    const w0 = W, h0 = H;                    // samym punktem planszy w środku ekranu; komputer – jak dotąd
+    rozmiar();
+    if (matchMedia('(pointer: coarse)').matches) {
+      if (v === vCalosc) return calosc();
+      v = {...v, tx: v.tx + (W - w0) / 2, ty: v.ty + (H - h0) / 2};
+    }
+    odswiez(false);
+  });
 
   // ---------- podświetlanie kabla: rzut (grubo, świecenie), boksy (szare tło), nazwy (tło w kolorze kabla) ----------
   const grupy = {}, pozycje = {}, boksy = {}, odnosniki = {};
@@ -166,11 +195,11 @@
     }
   }
   svg.addEventListener('pointermove', e => {
-    if ((ruch && ruch.moved) || przypiety) return;
+    if ((ruch && ruch.moved) || przypiety || e.pointerType === 'touch') return;   // palec – bez podświetlania pod nim
     const el = e.target.closest('[data-w]');
     ustaw(el ? el.dataset.w : null);
   });
-  svg.addEventListener('pointerleave', () => { if (!przypiety) ustaw(null); });
+  svg.addEventListener('pointerleave', e => { if (!przypiety && e.pointerType !== 'touch') ustaw(null); });
 
   // ---------- sygnał na podświetlonym kablu (najechanie albo przypięcie) – jakby płynął prąd: biały świecący punkt
   // biegnie po linii od początku do końca (skąd → dokąd) z gasnącym ogonem, na końcu błyska i gaśnie; chwila przerwy
@@ -265,7 +294,7 @@
   }
 
   // ---------- dymek z nazwą kabla (jak podpowiedź w CAD): kursor zatrzymany na kablu na rzucie – po chwili;
-  // ruch myszą (więcej niż drgnięcie), kółko albo przycisk – znika ----------
+  // ruch myszą (więcej niż drgnięcie), kółko albo przycisk – znika; palec – bez dymka (nazwa w karcie) ----------
   const dymek = document.createElement('div');
   dymek.id = 'dymek';
   document.body.appendChild(dymek);
@@ -282,7 +311,7 @@
   svg.addEventListener('pointermove', e => {
     if (dymekXY && Math.hypot(e.clientX - dymekXY[0], e.clientY - dymekXY[1]) < 3) return;   // drgnięcie – zostaje
     ukryjDymek();
-    if (ruch || e.buttons) return;
+    if (ruch || e.buttons || e.pointerType === 'touch') return;
     const g = e.target.closest('.kabel'), x = e.clientX, y = e.clientY;
     if (g && DANE[g.dataset.w]) dymekCzas = setTimeout(() => pokazDymek(DANE[g.dataset.w].n, x, y), 450);
   });
@@ -293,7 +322,7 @@
   // ---------- kliknięcie: przypięcie kabla (zostaje podświetlony) i karta kabla ----------
   // Karta – w stylu boksów planszy (ramka, tytuł z kreską pod spodem, krój ISOCPEUR, tło – blady kolor kabla), na stałe
   // w lewym dolnym rogu ekranu: nie przesuwa się ani nie skaluje z planszą (przesuwanie i zoom działają też nad nią);
-  // znika po odpięciu – klik obok albo w ten sam kabel, Esc.
+  // znika po odpięciu – klik obok albo w ten sam kabel, Esc (palec: stuknięcie obok, w ten sam kabel albo w kartę).
   const karta = document.createElement('div');
   karta.id = 'karta';
   scena.appendChild(karta);
@@ -308,13 +337,145 @@
   }
   function usunKarte() { karta.classList.remove('widoczna'); }
   function odepnij() { przypiety = null; usunKarte(); ustaw(null); }
-  svg.addEventListener('click', e => {
-    if (poRuchu) { poRuchu = false; return; }
-    const el = e.target.closest('[data-w]'), w = el ? el.dataset.w : null;
-    if (!w || w === przypiety) { odepnij(); return; }
+  function przypnij(w) {                     // kliknięcie (stuknięcie) w kabel albo nazwę – przypięcie i karta; obok
+    if (!w || w === przypiety) { odepnij(); return; }   // albo w ten sam – odpięcie
     przypiety = null; ustaw(w); przypiety = w;
     pokazKarte(w);
+  }
+  svg.addEventListener('click', e => {
+    if (poRuchu) { poRuchu = false; return; }
+    if (poDotyku()) return;                  // kliknięcie udawane po dotyku palcem – stuknięcie obsłużone niżej
+    const el = e.target.closest('[data-w]');
+    przypnij(el ? el.dataset.w : null);
   });
+
+  // ---------- dotyk (telefon, tablet): jeden palec – przesuwanie, dwa – zoom wokół środka między palcami razem
+  // z przesuwaniem (trzeci i dalsze – pomijane; palec dołożony albo podniesiony – bez skoku). Stuknięcie – jak
+  // kliknięcie, także trochę obok kabla albo nazwy (palec gruby, linie cienkie – wygrywa linia najbliżej palca, nie
+  // wierzchnia), ale po chwili (DOTYK.dwa – może będzie drugie): dwa stuknięcia – przybliżenie bez przypinania,
+  // stuknięcie dwoma palcami – oddalenie, w kartę – odpięcie (telefon nie ma Esc). Przesuwanie i szczypanie nie
+  // przypinają; bez podświetlania pod palcem i dymka. Mysz i pióro – jak dotąd (mousedown, click) ----------
+  const DOTYK = {prog: 10, dwa: 300, dwaOdl: 40, dwaPalce: 400, zasieg: 20};   // px ekranu, ms
+  const palce = new Map();                   // pointerId -> {x, y, x0, y0} (px w scenie), w kolejności dotknięcia
+  let gest = null, stuk = null, ostatniDotyk = -1e9, klatkaWidoku = 0, rs = null;   // rs – położenie sceny
+  function poDotyku() {                      // palce na ekranie albo przed chwilą: mysz udawana przez przeglądarkę
+    return palce.size > 0 || performance.now() - ostatniDotyk < 800;
+  }
+  function kotwica() {                       // zmiana liczby palców: dalszy ruch od bieżącego widoku – bez skoku
+    const [a, b = a] = palce.values();
+    gest.od = {v, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(b.x - a.x, b.y - a.y)};
+  }
+  function widokPalcami() {                  // punkt planszy spod środka dwóch pierwszych palców idzie za nim,
+    const [a, b = a] = palce.values(), o = gest.od, x = (a.x + b.x) / 2, y = (a.y + b.y) / 2;   // rozstaw – zoom
+    const k = o.d ? Math.hypot(b.x - a.x, b.y - a.y) / o.d : 1, s = o.d ? przytnij(o.v.s * k) : o.v.s;
+    v = {s, tx: x - (o.x - o.v.tx) * s / o.v.s, ty: y - (o.y - o.v.ty) * s / o.v.s};
+    if (s !== o.v.s * k) kotwica();          // granica przybliżenia: zsuwanie od razu oddala (bez martwej strefy)
+    klatkaWidoku ||= requestAnimationFrame(() => { klatkaWidoku = 0; odswiez(true); });   // rysowanie raz na klatkę
+  }
+  function pojedyncze() {                    // stuknięcie sprzed tego dotyku – jednak pojedyncze: wykonane teraz
+    if (gest.drugi) { gest.drugi.akcja(); gest.drugi = null; }
+  }
+  function ruszyl() { gest.ruch = true; pojedyncze(); }   // przesunięcie, szczypanie, przerwanie – nie stuknięcie
+  function ruchPalca(p, e) {                 // palec przesunięty: jeden – po progu (plansza go dogania), dwa – od razu
+    p.x = e.clientX - rs.left; p.y = e.clientY - rs.top;
+    if (!gest.ruch && Math.hypot(p.x - p.x0, p.y - p.y0) > DOTYK.prog) ruszyl();
+    if (gest.ruch || palce.size > 1) widokPalcami();
+  }
+  scena.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'touch') return;
+    e.preventDefault();                      // bez udawanej myszy (mousedown, mouseup) i zaznaczania
+    ostatniDotyk = performance.now(); ukryjDymek();
+    if (e.isPrimary || !gest) {              // pierwszy palec – nowy gest (palce zgubione w poprzednim – zapomniane)
+      if (gest) pojedyncze();
+      palce.clear(); cancelAnimationFrame(anim); rs = scena.getBoundingClientRect();
+      gest = {t0: ostatniDotyk, cel: e.target, x0: e.clientX - rs.left, y0: e.clientY - rs.top, n: 0, ruch: false};
+      const s = stuk;                        // stuknięcie przed chwilą: to drugie (blisko, na planszy) albo co innego
+      if (s) {
+        stuk = null; clearTimeout(s.czas);
+        if (svg.contains(e.target) && Math.hypot(gest.x0 - s.x, gest.y0 - s.y) < DOTYK.dwaOdl) gest.drugi = s;
+        else s.akcja();
+      }
+    }
+    const x = e.clientX - rs.left, y = e.clientY - rs.top;
+    palce.set(e.pointerId, {x, y, x0: x, y0: y});
+    gest.n = Math.max(gest.n, palce.size);
+    kotwica();
+    if (palce.size > 1) pojedyncze();        // drugi palec – stuknięcie sprzed niego było pojedyncze
+    if (palce.size === 2) gest.m = [gest.od.x, gest.od.y];   // stuknięcie dwoma palcami – oddalenie wokół środka
+  });
+  window.addEventListener('pointermove', e => {
+    const p = palce.get(e.pointerId);
+    if (p && e.pointerType === 'touch') ruchPalca(p, e);
+  });
+  function puszczony(e) {
+    const p = palce.get(e.pointerId);
+    if (!p || e.pointerType !== 'touch') return;
+    ostatniDotyk = performance.now();
+    if (e.type === 'pointerup') ruchPalca(p, e);
+    else ruszyl();                           // pointercancel (dotyk zabrany): nie stuknięcie, położenie bywa zerowe
+    palce.delete(e.pointerId);
+    if (palce.size) kotwica();               // zostały palce – dalej od bieżącego widoku, bez skoku
+    else koniec();
+  }
+  window.addEventListener('pointerup', puszczony);
+  window.addEventListener('pointercancel', puszczony);
+  function koniec() {                        // ostatni palec podniesiony: co to było
+    const g = gest; gest = null;
+    if (g.ruch) return;
+    if (g.n === 2 && performance.now() - g.t0 < DOTYK.dwaPalce) { przybliz(g.m[0], g.m[1], .5); return; }
+    if (g.n !== 1) return;
+    if (karta.contains(g.cel)) { odepnij(); return; }   // stuknięcie w kartę – odpięcie
+    if (!svg.contains(g.cel)) return;
+    if (g.drugi) { przybliz(g.x0, g.y0, 2); return; }   // dwa stuknięcia – przybliżenie, bez przypinania
+    const w = najblizszy(g.x0, g.y0, g.cel), s = stuk = {x: g.x0, y: g.y0, akcja: () => przypnij(w)};
+    s.czas = setTimeout(() => { if (stuk === s) stuk = null; s.akcja(); }, DOTYK.dwa);   // po chwili (może drugie)
+  }
+  function przybliz(x, y, k) {               // płynnie: przybliżenie (k > 1) albo oddalenie wokół punktu ekranu
+    const s = przytnij(v.s * k);
+    przejdz({s, tx: x - (x - v.tx) * s / v.s, ty: y - (y - v.ty) * s / v.s});
+  }
+  // stuknięcie obok: najbliższy kabel albo nazwa w zasięgu DOTYK.zasieg px ekranu; na boksie – tylko nazwy z niego
+  // (kable pod boksem są zasłonięte)
+  let linie = null;                          // wpis -> łamane kabla [[x, y, x, y, …], …] (pt planszy)
+  function najblizszy(x, y, cel) {
+    if (!linie) {
+      linie = {};
+      for (const w in grupy) {
+        const t = grupy[w].querySelector('.linia').getAttribute('d').match(/[Ml]|-?[\d.]+/g), L = linie[w] = [];
+        for (let i = 0, c = 'M', p; i < t.length;) {
+          if (t[i] === 'M' || t[i] === 'l') { c = t[i++]; continue; }
+          const a = +t[i++], b = +t[i++];
+          if (c === 'M') L.push(p = [a, b]); else p.push(p[p.length - 2] + a, p[p.length - 1] + b);
+        }
+      }
+    }
+    const px = (x - v.tx) / v.s, py = (y - v.ty) / v.s, boks = cel.closest('.box');
+    let best = null, min = DOTYK.zasieg / v.s;   // pt planszy
+    const blizej = (w, d) => { if (d < min) { min = d; best = w; } };
+    if (!boks) for (const w in linie) for (const L of linie[w]) for (let i = 2; i < L.length; i += 2) {
+      const ax = L[i - 2], ay = L[i - 1], dx = L[i] - ax, dy = L[i + 1] - ay, l = dx * dx + dy * dy;
+      const k = l ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l)) : 0;
+      blizej(w, Math.hypot(px - ax - k * dx, py - ay - k * dy));
+    }
+    for (const r of (boks || svg).querySelectorAll('.poz .tlo')) {
+      const [rx, ry, rw, rh] = ['x', 'y', 'width', 'height'].map(a => +r.getAttribute(a));
+      const d = Math.hypot(Math.max(rx - px, 0, px - rx - rw), Math.max(ry - py, 0, py - ry - rh));
+      blizej(r.parentNode.dataset.w, d);
+    }
+    return best;
+  }
+  // palec: bez kliknięcia, zdarzeń myszy, menu i zaznaczania po dotyku (pióro – jak dotąd, jego kliknięcie zostaje);
+  // iOS: dwa palce – bez zoomu całej strony
+  scena.addEventListener('touchstart', e => { if (palce.size) e.preventDefault(); }, {passive: false});
+  scena.addEventListener('contextmenu', e => { if (poDotyku()) e.preventDefault(); });   // przytrzymanie – bez menu
+  for (const t of ['gesturestart', 'gesturechange'])
+    document.addEventListener(t, e => { if (palce.size) e.preventDefault(); });
+  // przycisk „Całość” – na ekranie dotykowym (plansza.css): nie ma klawisza F ani środkowego przycisku myszy
+  const przycisk = document.createElement('button');
+  przycisk.id = 'calosc'; przycisk.type = 'button'; przycisk.textContent = 'Całość'; przycisk.title = 'Cała plansza';
+  przycisk.addEventListener('click', () => calosc(true));
+  przycisk.addEventListener('touchstart', () => {}, {passive: true});   // iOS: bez nasłuchu nie ma stanu :active
+  document.body.appendChild(przycisk);
 
   rozmiar();
   calosc();
