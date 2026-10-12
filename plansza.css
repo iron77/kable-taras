@@ -1,0 +1,75 @@
+/* Kable na planie 6 – strona interaktywna (szablon; kopiowany do wynik/html/ przez eksport_html.py) */
+:root { --tlo: #fff; --panel: rgba(255, 255, 255, .93); --tekst: #1d1f21; --szary: #5f6368; --boks-on: #eef0f2; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--tlo); color: var(--tekst);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+#scena { position: fixed; inset: 0; touch-action: none; }
+#scena.przesuw { cursor: grabbing; }
+canvas, svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+svg text { font-family: 'ISOCPEUR', monospace; }
+
+/* pasek z nazwą kabla (najechanie) */
+#kabel { position: fixed; left: 12px; bottom: 12px; background: var(--panel); border-radius: 6px; padding: 6px 12px;
+  font-size: 14px; box-shadow: 0 1px 4px rgba(0, 0, 0, .18); display: none; }
+#kabel i { display: inline-block; width: 22px; height: 4px; border-radius: 2px; vertical-align: middle;
+  margin-right: 8px; }
+
+/* kable na rzucie: świecenie = kilka półprzezroczystych pociągnięć + gruby rdzeń (h0); grubość w px ekranu × --gr
+   (plansza.js: rośnie z przybliżeniem, ale wolniej – przy małym przybliżeniu cieńsze);
+   zapala się (--t-on) i gaśnie (--t-off) płynnie, krótko – tak samo przygaszanie reszty kabli i tła boksów / nazw */
+:root { --t-on: .18s; --t-off: .3s; }
+.kabel { transition: opacity var(--t-off) ease; }
+.kabel.hl, svg.dim .kabel:not(.hl) { transition: opacity var(--t-on) ease-out; }
+.kabel .halo { vector-effect: non-scaling-stroke; opacity: 0; visibility: hidden;
+  transition: opacity var(--t-off) ease, visibility 0s linear var(--t-off); }
+.kabel .h0 { stroke-width: calc(3.6px * var(--gr, 1)); }
+.kabel .h1 { stroke-width: calc(22px * var(--gr, 1)); stroke-opacity: .10; }
+.kabel .h2 { stroke-width: calc(13px * var(--gr, 1)); stroke-opacity: .20; }
+.kabel .h3 { stroke-width: calc(7px * var(--gr, 1)); stroke-opacity: .42; }
+.kabel .traf { stroke: transparent; stroke-width: 10px; vector-effect: non-scaling-stroke; pointer-events: stroke;
+  cursor: pointer; }
+.kabel.hl .halo { opacity: 1; visibility: visible; transition: opacity var(--t-on) ease-out; }
+svg.dim .kabel:not(.hl) { opacity: .22; }
+/* sygnał na podświetlonym kablu (plansza.js) – biały świecący punkt biegnący po linii (poświata biała, ku brzegom
+   przezroczysta), zapala się i gaśnie razem ze świeceniem kabla; biel – --iskra (w trybie nocnym czerń: plansza
+   odwracana jasnością) */
+:root { --iskra: #fff; }
+.kabel .sygnal { stroke: none; pointer-events: none; opacity: 0; visibility: hidden;
+  transition: opacity var(--t-off) ease, visibility 0s linear var(--t-off); }
+.kabel.hl .sygnal { opacity: 1; visibility: visible; transition: opacity var(--t-on) ease-out; }
+#iskra stop { stop-color: var(--iskra); }
+.sygnal .jadro { fill: var(--iskra); }
+/* boksy bez podświetlonego kabla (i ich odnośniki, otwory) – przygaszone, nie znikają */
+.box, .odnosnik { transition: opacity var(--t-off) ease; }
+svg.dim .box:not(.on), svg.dim .odnosnik:not(.on) { opacity: .35; transition: opacity var(--t-on) ease-out; }
+
+/* karta kabla (po kliknięciu) – w stylu boksów planszy, na stałe w lewym dolnym rogu ekranu */
+#karta { position: absolute; left: 16px; bottom: 16px; z-index: 5; max-width: min(430px, calc(100vw - 32px));
+  padding: 0 11px 7px; border: 1px solid #000; background: #fff; color: #000; font: 12.5px/1.4 'ISOCPEUR', monospace;
+  opacity: 0; visibility: hidden; transition: opacity var(--t-off) ease, visibility 0s linear var(--t-off); }
+#karta.widoczna { opacity: 1; visibility: visible; transition: opacity var(--t-on) ease-out; }
+#karta .tytul { margin: 0 -11px 4px; padding: 4px 11px 3px; border-bottom: 1px solid #000; font-size: 16px;
+  -webkit-text-stroke: .045em #000; }
+
+/* boksy i nazwy kabli: podświetlony boks – bardzo blady odcień koloru kabla (--jasny) */
+.box .ramka, .box .modul { fill: #fff; transition: fill var(--t-off) ease; }
+.box.on .ramka, .box.on .modul { fill: var(--jasny, var(--boks-on)); transition: fill var(--t-on) ease-out; }
+.poz { cursor: pointer; }
+.poz .tlo { fill: transparent; transition: fill var(--t-off) ease; }
+.poz text { transition: fill var(--t-off) ease, stroke var(--t-off) ease; }
+.poz.on .tlo { fill: var(--c); transition: fill var(--t-on) ease-out; }
+.poz.on text { fill: #fff; stroke: #fff; transition: fill var(--t-on) ease-out, stroke var(--t-on) ease-out; }
+
+/* dymek z nazwą kabla (kursor zatrzymany na kablu na rzucie) – jak podpowiedź w CAD */
+#dymek { position: fixed; z-index: 10; display: none; pointer-events: none; padding: 2px 7px; white-space: nowrap;
+  font: 12px system-ui, -apple-system, 'Segoe UI', sans-serif; color: #1d1f21; background: #fff;
+  border: 1px solid #a0a4a8; border-radius: 3px; box-shadow: 1px 2px 4px rgba(0, 0, 0, .22); }
+
+/* tryb nocny – wg ustawień urządzenia / przeglądarki (prefers-color-scheme): podkład i plansza odwrócone jasnością,
+   odcienie zachowane (invert + hue-rotate) – białe tło prawie czarne, czarne linie i teksty jasne, kolory kabli w tych
+   samych odcieniach; tło strony w kolorze arkusza */
+@media (prefers-color-scheme: dark) {
+  :root { --tlo: #141414; --panel: rgba(30, 32, 34, .93); --tekst: #e6e6e6; --szary: #a0a4a8; --iskra: #000; }
+  canvas, svg { filter: invert(.92) hue-rotate(180deg); }
+  #dymek { color: #e6e6e6; background: #26292c; border-color: #55595d; }
+  #karta { filter: invert(.92) hue-rotate(180deg); }
+}
